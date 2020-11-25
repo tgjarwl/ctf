@@ -1,97 +1,122 @@
+
+/* RC4 Encrypt/Decrypt
+
+RC4 was developped by RSA labs, however this code may not be exact.
+
+Written in portable Micro-C by Tom St Denis.
+
+Notes:
+
+1.  I found the 'source' on a discussion website.  The user
+posting confirms that this matches the BSAFE2 algorithm.
+
+2.  The user key can be upto 256 bytes in length.
+
+3.  Yes the same algorithm is used for decryption.
+
+4.  I have optimized the code from the original post to work
+well without the modulus.  Also I use 16-bit pointers in the
+arrays since some C compilers don't handle char indexes well.
+
+5.  Originally RC4 was a stream cipher, but for reasons of speed
+it is a variable block cipher here.  You pass it the address of
+the buffer and length as the first to parameters to rc4() and the
+rc4_key as the second parameter.
+
+6.  As a side note this cipher runs at about 84.7KB/s on my
+AMD486 40mhz.
+
+
+Micro-C is Copyrighted Dave Dunfield.
+Tom St Denis, 1999
+*/
+
+#include "stdafx.h"
+
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+/* a RC4 expanded key session */
+struct rc4_key {
+    unsigned char state[256];
+    unsigned x, y;
+};
 
-int initST(unsigned char *S, unsigned char *T, unsigned char *K, int len)
+/* expand a key (makes a rc4_key) */
+void prepare_key(unsigned char *keydata, unsigned len, struct rc4_key *key)
 {
-        int i = 0;
+    unsigned index1, index2, counter;
+    unsigned char *state;
 
-        for(i=0; i<256; i++)
-        {
-                S[i] = i;
-                T[i] = K[i%len];
-        }
+    state = key->state;
 
-        return 0;
+    for (counter = 0; counter < 256; counter++)
+        state[counter] = counter;
+
+    key->x = key->y = index1 = index2 = 0;
+
+    for (counter = 0; counter < 256; counter++) {
+        index2 = (keydata[index1] + state[counter] + index2) & 255;
+
+        /* swap */
+        state[counter] ^= state[index2];
+        state[index2] ^= state[counter];
+        state[counter] ^= state[index2];
+
+        index1 = (index1 + 1) % len;
+    }
 }
 
-int initS(unsigned char *S, unsigned char *T)
+/* reversible encryption, will encode a buffer updating the key */
+void rc4(unsigned char *buffer, unsigned len, struct rc4_key *key)
 {
-        unsigned char tmp = 0x00;
-        int i = 0;
-        int j = 0;
+    unsigned x, y, xorIndex, counter;
+    unsigned char *state;
 
-        for(i=0; i<256; i++)
-        {
-                j = (j + S[i] + T[i]) % 256;
-                tmp = S[j];
-                S[j] = S[i];
-                S[i] = tmp;
-        }
+    /* get local copies */
+    x = key->x; y = key->y;
+    state = key->state;
 
-        return 0;
+    for (counter = 0; counter < len; counter++) {
+        x = (x + 1) & 255;
+        y = (state[x] + y) & 255;
+
+        /* swap */
+        state[x] ^= state[y];
+        state[y] ^= state[x];
+        state[x] ^= state[y];
+
+        xorIndex = (state[y] + state[x]) & 255;
+
+        buffer[counter] ^= state[xorIndex];
+    }
+
+    key->x = x; key->y = y;
 }
 
-int initK(unsigned char *S, unsigned char *K, int len)
+
+main()
 {
-        unsigned char tmp = 0x00;
-        int i = 0;
-        int j = 0;
-        int r = 0;
-        int t = 0;
+    struct rc4_key s_box;
+    unsigned char user_key[8] = {1,2,3,4,5,6,7,8};
 
-        for(r=0; r<len; r++)
-        {
-                i = (i + 1) % 256;
-                j = (j + S[i]) % 256;
-                tmp = S[j];
-                S[j] = S[i];
-                S[i] = tmp;
-                t = (S[i] + S[j]) % 256;
-                K[r] = S[t];
-        }
+    unsigned char in[4], out[4], out2[4];
 
-        return 0;
-}
+    memset(in, 2, sizeof(in));
 
-int rc4_enc(unsigned char *K, unsigned char *M, unsigned char *E, int len)
-{
-        int i = 0;
+    /* encrypt */
+    memset(user_key, 0, sizeof(user_key));          /* build sesion key */
+    prepare_key(user_key, sizeof(user_key), &s_box);
+    memcpy(out, in, sizeof(in));
 
-        for(i=0; i<len; i++)
-        {
-                E[i] = (M[i] ^ K[i]);
-        }
+    rc4(out, 4, &s_box);
 
-        return 0;
-}
+    /* decrypt */
+    memset(user_key, 0, sizeof(user_key));          /* build session key */
+    prepare_key(user_key, sizeof(user_key), &s_box);
+    memcpy(out2, out, sizeof(out));
+    rc4(out2, 4, &s_box);
 
-int main()
-{
-        unsigned char S[256];
-        unsigned char T[256];
-        unsigned char K[256];
-        unsigned char M[256];
-        unsigned char E[256];
-        unsigned char C[256];
-
-        memset(S, 0x00, sizeof(S));
-        memset(T, 0x00, sizeof(T));
-        memset(K, 0x00, sizeof(K));
-        memset(E, 0x00, sizeof(E));
-        memset(C, 0x00, sizeof(C));
-
-        strcpy(K, "123");
-        strcpy(M, "你好");
-
-        initST(S, T, K, 4);
-        initS(S, T);
-        initK(S, K, 256);
-
-        rc4_enc(K, M, E, 256);
-        rc4_enc(K, E, C, 256);
-
-        printf("%s", E);
-
-        return 0;
+    /* output */
+    printf("Normal : %2x %2x %2x %2x\n", in[0], in[1], in[2], in[3]);
+    printf("Encoded: %2x %2x %2x %2x\n", out[0], out[1], out[2], out[3]);
+    printf("Decoded: %2x %2x %2x %2x\n", out2[0], out2[1], out2[2], out2[3]);
 }
